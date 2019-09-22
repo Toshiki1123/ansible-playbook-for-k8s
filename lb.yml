@@ -1,0 +1,26 @@
+---
+- hosts: all
+  connection: ssh
+  gather_facts: True
+
+- hosts: lb
+  connection: ssh
+  gather_facts: True
+
+  handlers:
+   - name: haproxy restart
+     service: name=haproxy state=restarted enabled=yes
+
+  tasks:
+   - name: Yum update
+     yum: name=* state=latest
+
+   - name: Install required package
+     yum: name={{ item }} state=latest
+     with_items:
+       - haproxy
+     notify: haproxy restart
+
+   - name: Set NGINX Config File for Kubernetes
+     template: src=ha-proxy.cfg.j2 dest=/etc/haproxy/haproxy.cfg backup=yes
+     notify: haproxy restart

@@ -1,0 +1,7 @@
+apiVersion: kubeadm.k8s.io/v1beta1
+kind: ClusterConfiguration
+kubernetesVersion: stable
+apiServer:
+  certSANs:
+  - "{{ hostvars[groups['lb'][0]]['ansible_hostname'] }}"
+controlPlaneEndpoint: "{{ hostvars[groups['lb'][0]]['ansible_hostname'] }}:6443"

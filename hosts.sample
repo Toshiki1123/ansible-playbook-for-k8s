@@ -1,0 +1,12 @@
+[lb]
+<LB Server IP Address>
+
+[master]
+<Master Server IP Address List>
+
+[worker]
+<Worker Server IP Address List>
+
+[all:vars]
+ansible_user = <Exec User>
+ansible_ssh_pass = <Exec User Password>

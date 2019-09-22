@@ -1,0 +1,28 @@
+global
+    log         127.0.0.1 local2 info
+    chroot      /var/lib/haproxy
+    pidfile     /var/run/haproxy.pid
+    maxconn     256
+    user        haproxy
+    group       haproxy
+    daemon
+
+defaults
+    mode               tcp
+    log                global
+    option             httplog
+    timeout connect    10s
+    timeout client     30s
+    timeout server     30s
+
+frontend k8s-apiserver *:6443
+    default_backend    backend_servers
+    option             forwardfor
+
+backend backend_servers
+    balance roundrobin
+    mode tcp
+{% for item in groups['master'] %}
+    server {{ hostvars[item]['ansible_hostname'] }} {{ hostvars[item]['ansible_hostname'] }}.{{ hostvars[item]['ansible_domain'] }}:6443 check
+{% endfor %}
+

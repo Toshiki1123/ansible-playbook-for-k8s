@@ -1,0 +1,71 @@
+---
+- hosts: lb
+  connection: ssh
+  gather_facts: True
+
+- hosts: master
+  connection: ssh
+  gather_facts: True
+
+  handlers:
+   - name: etcd restart
+     service: name=etcd state=restarted
+
+  tasks:
+   - name: Yum update
+     yum: name=* state=latest
+
+   - name: Install Required Packages
+     yum: name={{ item }} state=latest
+     with_items:
+       - etcd
+     notify: etcd restart
+
+   - set_fact: hostvarlist="{{ hostvarlist|default([]) + [ hostvars[item] ] }}"
+     with_items: "{{ groups['master'] }}"
+
+   - set_fact: etcd_clusters="{{ etcd_clusters|default([]) + [ item['ansible_hostname'] + '=http://' + item['ansible_default_ipv4']['address'] + ':2380'  ] }}"
+     with_items: "{{ hostvarlist }}"
+
+   - name: Set Config File for etcd
+     template: src=etcd.conf.j2 dest=/etc/etcd/etcd.conf backup=yes   
+     notify: etcd restart
+
+   - name: Copy Repository for Kubernetes
+     copy: src=kubernetes.repo dest=/etc/yum.repos.d/
+
+   - name: Install Kubernetes
+     yum: name={{ item }} state=latest
+     with_items:
+       - kubelet
+       - kubeadm
+       - kubectl
+       - docker
+
+   - name: Run kubelet
+     service: name={{ item }} state=started enabled=yes
+     with_items:
+       - kubelet
+       - docker
+
+   - name: Check kubeadm init
+     shell: kubeadm config view
+     register: kubeadm_init
+     failed_when: kubeadm_init.rc not in [0, 1]
+
+   - name: Set Config File for kubeadm
+     template: src=kubeadm-config.yaml.j2 dest=/root/kubeadm-config.yaml
+
+   - name: Init kubernetes
+     shell: kubeadm init --config=/root/kubeadm-config.yaml
+     when: kubeadm_init.rc == 1
+
+   - name: Copy Kubeadmin config file.
+     file: path=~/.kube state=directory
+
+   - name: Copy Kubeadmin config file.
+     copy: src=/etc/kubernetes/admin.conf dest=~/.kube/config remote_src=yes
+
+   - name: Deploy Networking Pods
+     shell: kubectl apply -f "https://cloud.weave.works/k8s/net?k8s-version=$(kubectl version | base64 | tr -d '\n')"
+     when: kubeadm_init.rc == 1

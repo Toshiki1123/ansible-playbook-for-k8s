@@ -1,0 +1,82 @@
+---
+- hosts: lb
+  connection: ssh
+  gather_facts: True
+
+- hosts: master
+  connection: ssh
+
+  tasks:
+   - name: Join Command
+     shell: kubeadm token create --print-join-command
+     register: join_command
+
+   - name: Copy Admin Config
+     shell: cat /root/.kube/config
+     register: admin_config
+
+   - name: Create Admin Config
+     local_action: copy content={{ item.content }} dest=/opt/ansible/files/{{ item.path }}
+     with_items:
+      - content: "{{ admin_config.stdout }}"
+        path: kubectl_config
+      - content: "{{ join_command.stdout }}"
+        path: join_command
+
+- hosts: worker
+  connection: ssh
+  gather_facts: True
+
+  tasks:
+   - name: Yum update
+     yum: name=* state=latest
+
+   - name: Copy Repository for Kubernetes
+     copy: src=kubernetes.repo dest=/etc/yum.repos.d/
+
+   - name: Install Kubernetes
+     yum: name={{ item }} state=latest
+     with_items:
+       - kubelet
+       - kubeadm
+       - kubectl
+       - docker
+
+   - name: Run kubelet
+     service: name={{ item }} state=started enabled=yes
+     with_items:
+       - kubelet
+       - docker
+
+   - name: Check kubeadm init
+     shell: kubeadm config view
+     register: kubeadm_init
+     failed_when: kubeadm_init.rc not in [0, 1]
+
+   - name: Create Directory
+     file: path={{ item }} state=directory recurse=yes
+     with_items:
+      - /var/lib/kubelet/
+      - /etc/kubernetes/pki
+      - ~/.kube
+
+   - name: Set Config
+     copy: src={{ item.src }} dest={{ item.dest }}
+     with_items:
+      - src: kubectl_config
+        dest: ~/.kube/config
+
+   - name: check file 
+     stat: path=/var/lib/kubelet/config.yaml
+     register: check_join
+
+   - name: Get Command
+     local_action: shell cat /opt/ansible/files/join_command
+     register: join_command
+     when: not check_join.stat.exists
+
+   - name: Join kubernetes
+     shell: "{{ item }}"
+     with_items:
+       - "{{ join_command.stdout }}"
+     when: not check_join.stat.exists
